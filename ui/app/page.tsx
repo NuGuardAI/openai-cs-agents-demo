@@ -21,6 +21,7 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       const data = await callChatAPI("", conversationId ?? "");
+      if (!data) return; // Handle API error
       setConversationId(data.conversation_id);
       setCurrentAgent(data.current_agent);
       setContext(data.context);
@@ -58,6 +59,11 @@ export default function Home() {
     setIsLoading(true);
 
     const data = await callChatAPI(content, conversationId ?? "");
+
+    if (!data) {
+      setIsLoading(false);
+      return; // Handle API error
+    }
 
     if (!conversationId) setConversationId(data.conversation_id);
     setCurrentAgent(data.current_agent);

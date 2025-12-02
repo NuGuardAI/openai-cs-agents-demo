@@ -15,6 +15,9 @@ from agents import (
     input_guardrail,
 )
 from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # =========================
 # CONTEXT
