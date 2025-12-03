@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Any
 from uuid import uuid4
 import time
 import logging
+import os
 
 from main import (
     triage_agent,
@@ -32,10 +33,11 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# CORS configuration (adjust as needed for deployment)
+# CORS configuration - supports both local development and production
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
