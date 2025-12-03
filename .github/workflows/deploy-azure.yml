@@ -12,7 +12,7 @@ env:
   PYTHON_VERSION: '3.11'
   NODE_VERSION: '20'
   RESOURCE_GROUP: openai-cs-agents-demo-rg
-  LOCATION: eastus
+  LOCATION: eastus2
   APP_SERVICE_PLAN: openai-cs-agents-plan
   STATIC_WEB_APP_NAME: openai-cs-agents-frontend
 
