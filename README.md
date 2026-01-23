@@ -23,6 +23,12 @@ You can set your OpenAI API key in your environment variables by running the fol
 export OPENAI_API_KEY=your_api_key
 ```
 
+On Windows PowerShell:
+
+```powershell
+$env:OPENAI_API_KEY = "your_api_key"
+```
+
 You can also follow [these instructions](https://platform.openai.com/docs/libraries#create-and-export-an-api-key) to set your OpenAI key at a global level.
 
 Alternatively, you can set the `OPENAI_API_KEY` environment variable in an `.env` file at the root of the `python-backend` folder. You will need to install the `python-dotenv` package to load the environment variables from the `.env` file. And then, add these lines of code to your app:
@@ -60,10 +66,10 @@ You can either run the backend independently if you want to use a separate UI, o
 From the `python-backend` folder, run:
 
 ```bash
-python -m uvicorn api:app --reload --port 8000
+python -m uvicorn api:app --reload --port 8250
 ```
 
-The backend will be available at: [http://localhost:8000](http://localhost:8000)
+The backend will be available at: [http://localhost:8250](http://localhost:8250)
 
 #### Run the UI & backend simultaneously
 
@@ -73,7 +79,9 @@ From the `ui` folder, run:
 npm run dev
 ```
 
-The frontend will be available at: [http://localhost:3000](http://localhost:3000)
+The frontend will be available at: [http://localhost:3250](http://localhost:3250)
+
+If you want a different UI port, change the `dev:next` script in `ui/package.json`.
 
 This command will also start the backend.
 

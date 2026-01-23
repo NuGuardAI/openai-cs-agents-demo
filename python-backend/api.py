@@ -34,7 +34,10 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 # CORS configuration - supports both local development and production
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+allowed_origins = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3250,http://localhost:3000",
+).split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -185,7 +188,9 @@ async def chat_endpoint(req: ChatRequest):
         conversation_id = req.conversation_id  # type: ignore
         state = conversation_store.get(conversation_id)
 
-    current_agent = _get_agent_by_name(state["current_agent"])
+    # Always start each turn from the triage agent so routing is re-evaluated for every
+    # new user message (instead of "sticking" to the last specialist agent).
+    current_agent = triage_agent
     state["input_items"].append({"content": req.message, "role": "user"})
     old_context = state["context"].model_dump().copy()
     guardrail_checks: List[GuardrailCheck] = []
@@ -317,13 +322,31 @@ async def chat_endpoint(req: ChatRequest):
             )
         )
 
+    # After handling a turn, return control back to the triage agent so the next user
+    # message is routed fresh.
+    if current_agent.name != triage_agent.name:
+        events.append(
+            AgentEvent(
+                id=uuid4().hex,
+                type="handoff",
+                agent=current_agent.name,
+                content=f"{current_agent.name} -> {triage_agent.name}",
+                metadata={
+                    "source_agent": current_agent.name,
+                    "target_agent": triage_agent.name,
+                    "synthetic": True,
+                },
+            )
+        )
+    response_agent = triage_agent
+
     state["input_items"] = result.to_input_list()
-    state["current_agent"] = current_agent.name
+    state["current_agent"] = response_agent.name
     conversation_store.save(conversation_id, state)
 
     # Build guardrail results: mark failures (if any), and any others as passed
     final_guardrails: List[GuardrailCheck] = []
-    for g in getattr(current_agent, "input_guardrails", []):
+    for g in getattr(response_agent, "input_guardrails", []):
         name = _get_guardrail_name(g)
         failed = next((gc for gc in guardrail_checks if gc.name == name), None)
         if failed:
@@ -340,7 +363,7 @@ async def chat_endpoint(req: ChatRequest):
 
     return ChatResponse(
         conversation_id=conversation_id,
-        current_agent=current_agent.name,
+        current_agent=response_agent.name,
         messages=messages,
         events=events,
         context=state["context"].dict(),
