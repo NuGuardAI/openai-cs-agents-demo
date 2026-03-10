@@ -1,7 +1,9 @@
 // Helper to call the server
 export async function callChatAPI(message: string, conversationId: string) {
   try {
-    const res = await fetch("/chat", {
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE ?? "";
+    const url = baseUrl ? `${baseUrl}/chat` : "/chat";
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversation_id: conversationId, message }),

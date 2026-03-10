@@ -113,15 +113,11 @@ jobs:
         working-directory: ./ui
         run: pnpm install
 
-      - name: Update API endpoint for production
-        working-directory: ./ui
-        run: |
-          # Update next.config.mjs to use the deployed backend URL
-          sed -i 's|http://127.0.0.1:8250/chat|${{ needs.build-and-deploy-backend.outputs.backend_url }}/chat|g' next.config.mjs
-
       - name: Build frontend
         working-directory: ./ui
         run: pnpm run build
+        env:
+          NEXT_PUBLIC_API_BASE: ${{ needs.build-and-deploy-backend.outputs.backend_url }}
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -153,7 +149,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
           app_location: "./ui"
-          output_location: ".next"
+          output_location: "out"
           skip_app_build: true
 
       - name: Output Frontend URL
