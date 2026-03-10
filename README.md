@@ -85,6 +85,47 @@ If you want a different UI port, change the `dev:next` script in `ui/package.jso
 
 This command will also start the backend.
 
+## Deployment (CI/CD)
+
+This repo includes a GitHub Actions workflow that deploys both the backend and frontend to Azure on pushes to main (or manual runs).
+
+- Backend: Azure App Service (Python) with OpenAI key injected as an app setting
+- Frontend: Azure Static Web Apps built from ui and pointed at the deployed backend URL
+- CORS: configured on the backend to allow the Static Web App origin
+
+Workflow file: .github/workflows/deploy-azure.yml
+Required secrets: AZURE_CREDENTIALS, OPENAI_API_KEY
+
+To generate AZURE_CREDENTIALS for GitHub Actions, use the Azure CLI to create a service principal and save the JSON output as the secret:
+
+```bash
+az ad sp create-for-rbac \
+   --name "openai-cs-agents-demo-sp" \
+   --role contributor \
+   --scopes /subscriptions/<SUBSCRIPTION_ID> \
+   --sdk-auth
+```
+
+Windows PowerShell:
+
+```powershell
+az ad sp create-for-rbac `
+   --name "openai-cs-agents-demo-sp" `
+   --role contributor `
+   --scopes /subscriptions/<SUBSCRIPTION_ID> `
+   --sdk-auth
+```
+
+To scope to a single resource group instead of the whole subscription, use:
+
+```bash
+az ad sp create-for-rbac \
+   --name "openai-cs-agents-demo-sp" \
+   --role contributor \
+   --scopes /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RESOURCE_GROUP_NAME> \
+   --sdk-auth
+```
+
 ## Customization
 
 This app is designed for demonstration purposes. Feel free to update the agent prompts, guardrails, and tools to fit your own customer service workflows or experiment with new use cases! The modular structure makes it easy to extend or modify the orchestration logic for your needs.
