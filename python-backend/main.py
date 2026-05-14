@@ -16,8 +16,17 @@ from agents import (
 )
 from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from dotenv import load_dotenv
+from pathlib import Path
+from database import (
+    get_user_by_account,
+    get_reservations_by_account,
+    get_reservation_by_confirmation,
+    update_seat_in_db,
+    cancel_reservation_in_db,
+)
 
-load_dotenv()
+load_dotenv()  # python-backend/.env
+load_dotenv(Path(__file__).parent.parent / ".env")  # repo root .env
 
 # =========================
 # CONTEXT
@@ -26,19 +35,27 @@ load_dotenv()
 class AirlineAgentContext(BaseModel):
     """Context for airline customer service agents."""
     passenger_name: str | None = None
+    email: str | None = None
     confirmation_number: str | None = None
     seat_number: str | None = None
     flight_number: str | None = None
     account_number: str | None = None  # Account number associated with the customer
 
+# Demo account numbers that exist in the database
+DEMO_ACCOUNTS = ["11111111", "22222222", "33333333", "44444444", "55555555"]
+
 def create_initial_context() -> AirlineAgentContext:
     """
     Factory for a new AirlineAgentContext.
-    For demo: generates a fake account number.
-    In production, this should be set from real user data.
+    Picks a random account from the seeded demo database so the agent
+    can always look up real reservation data.
     """
     ctx = AirlineAgentContext()
-    ctx.account_number = str(random.randint(10000000, 99999999))
+    ctx.account_number = random.choice(DEMO_ACCOUNTS)
+    user = get_user_by_account(ctx.account_number)
+    if user:
+        ctx.passenger_name = user["name"]
+        ctx.email = user["email"]
     return ctx
 
 # =========================
@@ -67,6 +84,70 @@ async def faq_lookup_tool(question: str) -> str:
         return "We have free wifi on the plane, join Airline-Wifi"
     return "I'm sorry, I don't know the answer to that question."
 
+@function_tool(
+    name_override="lookup_reservation",
+    description_override=(
+        "Look up the current customer's flight reservations from the database. "
+        "Call with NO arguments to list all reservations for the logged-in customer. "
+        "Only pass confirmation_number (a 6-character code like 'AA1234') if the customer "
+        "explicitly provides one and you need to look up that specific booking. "
+        "Never pass the account_number as the confirmation_number."
+    )
+)
+async def lookup_reservation(
+    context: RunContextWrapper[AirlineAgentContext],
+    confirmation_number: str | None = None,
+) -> str:
+    """
+    Look up reservations from the database.
+    If confirmation_number is provided, returns that specific booking.
+    Otherwise returns all bookings for the customer's account.
+    """
+    # Guard: the LLM sometimes passes the account_number here by mistake.
+    # Account numbers are 8 digits; confirmation codes are 6 alphanumeric chars.
+    if confirmation_number and confirmation_number.isdigit() and len(confirmation_number) == 8:
+        confirmation_number = None  # treat it as an account-level lookup
+
+    if confirmation_number:
+        res = get_reservation_by_confirmation(confirmation_number)
+        if not res:
+            return f"No reservation found for confirmation number {confirmation_number}."
+        # Populate context
+        context.context.confirmation_number = res["confirmation_number"]
+        context.context.flight_number = res["flight_number"]
+        context.context.seat_number = res["seat_number"]
+        context.context.passenger_name = res.get("passenger_name")
+        context.context.email = res.get("email")
+        return (
+            f"Reservation found:\n"
+            f"  Passenger: {res.get('passenger_name', 'N/A')}\n"
+            f"  Email: {res.get('email', 'N/A')}\n"
+            f"  Confirmation: {res['confirmation_number']}\n"
+            f"  Flight: {res['flight_number']} ({res['airline']})\n"
+            f"  Route: {res['departure_airport']} → {res['arrival_airport']}\n"
+            f"  Date: {res['departure_date']}\n"
+            f"  Seat: {res['seat_number'] or 'Not assigned'}\n"
+            f"  Status: {res['status']}"
+        )
+
+    account = context.context.account_number
+    if not account:
+        return "No account number found in context. Please provide a confirmation number."
+
+    reservations = get_reservations_by_account(account)
+    if not reservations:
+        return "No reservations found for this account."
+
+    lines = [f"Reservations for account {account}:"]
+    for r in reservations:
+        lines.append(
+            f"  • {r['confirmation_number']} | {r['flight_number']} ({r['airline']}) | "
+            f"{r['departure_airport']}→{r['arrival_airport']} | {r['departure_date']} | "
+            f"Seat {r['seat_number'] or 'TBD'} | {r['status']}"
+        )
+    return "\n".join(lines)
+
+
 @function_tool
 async def update_seat(
     context: RunContextWrapper[AirlineAgentContext], confirmation_number: str, new_seat: str
@@ -74,7 +155,9 @@ async def update_seat(
     """Update the seat for a given confirmation number."""
     context.context.confirmation_number = confirmation_number
     context.context.seat_number = new_seat
-    assert context.context.flight_number is not None, "Flight number is required"
+    updated = update_seat_in_db(confirmation_number, new_seat)
+    if not updated:
+        return f"Could not find reservation {confirmation_number} in the database."
     return f"Updated seat to {new_seat} for confirmation number {confirmation_number}"
 
 @function_tool(
@@ -114,9 +197,22 @@ async def display_seat_map(
 # =========================
 
 async def on_seat_booking_handoff(context: RunContextWrapper[AirlineAgentContext]) -> None:
-    """Set a random flight number when handed off to the seat booking agent."""
-    context.context.flight_number = f"FLT-{random.randint(100, 999)}"
-    context.context.confirmation_number = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    """Populate flight details from the DB when handing off to seat booking agent."""
+    account = context.context.account_number
+    if account and not context.context.confirmation_number:
+        reservations = get_reservations_by_account(account)
+        confirmed = [r for r in reservations if r["status"] == "confirmed"]
+        if confirmed:
+            first = confirmed[0]
+            context.context.confirmation_number = first["confirmation_number"]
+            context.context.flight_number = first["flight_number"]
+            context.context.seat_number = first["seat_number"]
+            return
+    # Fallback: keep existing context values if already set
+    if not context.context.flight_number:
+        context.context.flight_number = f"FLT-{random.randint(100, 999)}"
+    if not context.context.confirmation_number:
+        context.context.confirmation_number = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 # =========================
 # GUARDRAILS
@@ -189,15 +285,18 @@ def seat_booking_instructions(
 ) -> str:
     ctx = run_context.context
     confirmation = ctx.confirmation_number or "[unknown]"
+    seat = ctx.seat_number or "[unknown]"
     return (
         f"{RECOMMENDED_PROMPT_PREFIX}\n"
-        "You are a seat booking agent. If you are speaking to a customer, you probably were transferred to from the triage agent.\n"
-        "Use the following routine to support the customer.\n"
-        f"1. The customer's confirmation number is {confirmation}."+
-        "If this is not available, ask the customer for their confirmation number. If you have it, confirm that is the confirmation number they are referencing.\n"
-        "2. Ask the customer what their desired seat number is. You can also use the display_seat_map tool to show them an interactive seat map where they can click to select their preferred seat.\n"
-        "3. Use the update seat tool to update the seat on the flight.\n"
-        "If the customer asks a question that is not related to the routine, transfer back to the triage agent."
+        "You are a seat booking agent. You were transferred here from the triage agent.\n"
+        "Use the following routine to support the customer:\n"
+        f"1. The customer's confirmation number is {confirmation} and current seat is {seat}. "
+        "If the confirmation number is unknown, use the lookup_reservation tool to find it. "
+        "Once you have it, confirm it with the customer before proceeding.\n"
+        "2. Ask the customer what their desired seat number is. You can also use the display_seat_map tool "
+        "to show them an interactive seat map where they can click to select their preferred seat.\n"
+        "3. Use the update_seat tool to update the seat.\n"
+        "If the customer asks anything unrelated, transfer back to the triage agent."
     )
 
 seat_booking_agent = Agent[AirlineAgentContext](
@@ -205,7 +304,7 @@ seat_booking_agent = Agent[AirlineAgentContext](
     model="gpt-4.1",
     handoff_description="A helpful agent that can update a seat on a flight.",
     instructions=seat_booking_instructions,
-    tools=[update_seat, display_seat_map],
+    tools=[lookup_reservation, update_seat, display_seat_map],
     input_guardrails=[relevance_guardrail, jailbreak_guardrail],
 )
 
@@ -218,10 +317,11 @@ def flight_status_instructions(
     return (
         f"{RECOMMENDED_PROMPT_PREFIX}\n"
         "You are a Flight Status Agent. Use the following routine to support the customer:\n"
-        f"1. The customer's confirmation number is {confirmation} and flight number is {flight}.\n"
-        "   If either is not available, ask the customer for the missing information. If you have both, confirm with the customer that these are correct.\n"
-        "2. Use the flight_status_tool to report the status of the flight.\n"
-        "If the customer asks a question that is not related to flight status, transfer back to the triage agent."
+        f"1. The customer's confirmation number is {confirmation} and flight number is {flight}. "
+        "If either is unknown, use the lookup_reservation tool to retrieve them — do not ask the customer. "
+        "Once you have both, confirm them with the customer.\n"
+        "2. Use the flight_status_tool to report the current status of the flight.\n"
+        "If the customer asks anything else, transfer back to the triage agent."
     )
 
 flight_status_agent = Agent[AirlineAgentContext](
@@ -229,7 +329,7 @@ flight_status_agent = Agent[AirlineAgentContext](
     model="gpt-4.1",
     handoff_description="An agent to provide flight status information.",
     instructions=flight_status_instructions,
-    tools=[flight_status_tool],
+    tools=[lookup_reservation, flight_status_tool],
     input_guardrails=[relevance_guardrail, jailbreak_guardrail],
 )
 
@@ -242,14 +342,27 @@ async def cancel_flight(
     context: RunContextWrapper[AirlineAgentContext]
 ) -> str:
     """Cancel the flight in the context."""
-    fn = context.context.flight_number
-    assert fn is not None, "Flight number is required"
-    return f"Flight {fn} successfully cancelled"
+    conf = context.context.confirmation_number
+    if not conf:
+        return "No confirmation number found in context. Please look up the reservation first."
+    cancelled = cancel_reservation_in_db(conf)
+    if not cancelled:
+        return f"Could not find reservation {conf} in the database."
+    return f"Reservation {conf} (flight {context.context.flight_number}) has been successfully cancelled."
 
 async def on_cancellation_handoff(
     context: RunContextWrapper[AirlineAgentContext]
 ) -> None:
-    """Ensure context has a confirmation and flight number when handing off to cancellation."""
+    """Populate flight details from the DB when handing off to cancellation agent."""
+    account = context.context.account_number
+    if account and not context.context.confirmation_number:
+        reservations = get_reservations_by_account(account)
+        confirmed = [r for r in reservations if r["status"] == "confirmed"]
+        if confirmed:
+            first = confirmed[0]
+            context.context.confirmation_number = first["confirmation_number"]
+            context.context.flight_number = first["flight_number"]
+            return
     if context.context.confirmation_number is None:
         context.context.confirmation_number = "".join(
             random.choices(string.ascii_uppercase + string.digits, k=6)
@@ -266,8 +379,9 @@ def cancellation_instructions(
     return (
         f"{RECOMMENDED_PROMPT_PREFIX}\n"
         "You are a Cancellation Agent. Use the following routine to support the customer:\n"
-        f"1. The customer's confirmation number is {confirmation} and flight number is {flight}.\n"
-        "   If either is not available, ask the customer for the missing information. If you have both, confirm with the customer that these are correct.\n"
+        f"1. The customer's confirmation number is {confirmation} and flight number is {flight}. "
+        "If either is unknown, use the lookup_reservation tool to retrieve them — do not ask the customer. "
+        "Once you have both, confirm them with the customer before cancelling.\n"
         "2. If the customer confirms, use the cancel_flight tool to cancel their flight.\n"
         "If the customer asks anything else, transfer back to the triage agent."
     )
@@ -277,7 +391,7 @@ cancellation_agent = Agent[AirlineAgentContext](
     model="gpt-4.1",
     handoff_description="An agent to cancel flights.",
     instructions=cancellation_instructions,
-    tools=[cancel_flight],
+    tools=[lookup_reservation, cancel_flight],
     input_guardrails=[relevance_guardrail, jailbreak_guardrail],
 )
 
@@ -301,8 +415,16 @@ triage_agent = Agent[AirlineAgentContext](
     handoff_description="A triage agent that can delegate a customer's request to the appropriate agent.",
     instructions=(
         f"{RECOMMENDED_PROMPT_PREFIX} "
-        "You are a helpful triaging agent. You can use your tools to delegate questions to other appropriate agents."
+        "You are a helpful triaging agent for an airline customer service system. "
+        "IMPORTANT: At the very start of every conversation, before responding to the customer, "
+        "you MUST call the lookup_reservation tool (with no arguments) to load the customer's "
+        "flight reservations from the database. Use the returned reservation data to personalise "
+        "your response and to pre-populate context before handing off to any specialist agent. "
+        "Never ask the customer for information already available in context (name, email, "
+        "confirmation number, flight number, seat). "
+        "Route to the appropriate specialist agent based on the customer's request."
     ),
+    tools=[lookup_reservation],
     handoffs=[
         flight_status_agent,
         handoff(agent=cancellation_agent, on_handoff=on_cancellation_handoff),

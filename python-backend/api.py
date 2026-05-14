@@ -1,12 +1,14 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from uuid import uuid4
+import secrets
 import time
 import logging
 import os
 
+from database import verify_credentials, get_user_by_account
 from main import (
     triage_agent,
     faq_agent,
@@ -49,6 +51,22 @@ app.add_middleware(
 # =========================
 # Models
 # =========================
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class LoginResponse(BaseModel):
+    token: str
+    account_number: str
+    name: str
+    email: str
+
+class UserResponse(BaseModel):
+    account_number: str
+    name: str
+    email: str
+    username: str
 
 class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
@@ -107,6 +125,53 @@ class InMemoryConversationStore(ConversationStore):
 conversation_store = InMemoryConversationStore()
 
 # =========================
+# Simple session token store
+# =========================
+
+# Maps token -> user dict {account_number, name, email, username}
+_sessions: Dict[str, Dict[str, str]] = {}
+
+def _get_session(authorization: Optional[str]) -> Optional[Dict[str, str]]:
+    """Parse 'Bearer <token>' header and return the session user dict."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization[len("Bearer "):].strip()
+    return _sessions.get(token)
+
+# =========================
+# Auth Endpoints
+# =========================
+
+@app.post("/login", response_model=LoginResponse)
+async def login(req: LoginRequest):
+    user = verify_credentials(req.username, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token = secrets.token_urlsafe(32)
+    _sessions[token] = user
+    return LoginResponse(
+        token=token,
+        account_number=user["account_number"],
+        name=user["name"],
+        email=user["email"],
+    )
+
+@app.get("/me", response_model=UserResponse)
+async def me(authorization: Optional[str] = Header(default=None)):
+    user = _get_session(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return UserResponse(**user)
+
+@app.post("/logout")
+async def logout(authorization: Optional[str] = Header(default=None)):
+    user = _get_session(authorization)
+    if user and authorization:
+        token = authorization[len("Bearer "):].strip()
+        _sessions.pop(token, None)
+    return {"ok": True}
+
+# =========================
 # Helpers
 # =========================
 
@@ -157,7 +222,7 @@ def _build_agents_list() -> List[Dict[str, Any]]:
 # =========================
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(req: ChatRequest, authorization: Optional[str] = Header(default=None)):
     """
     Main chat endpoint for agent orchestration.
     Handles conversation state, agent routing, and guardrail checks.
@@ -167,6 +232,12 @@ async def chat_endpoint(req: ChatRequest):
     if is_new:
         conversation_id: str = uuid4().hex
         ctx = create_initial_context()
+        # If an authenticated user is making the request, use their account
+        session_user = _get_session(authorization)
+        if session_user:
+            ctx.account_number = session_user["account_number"]
+            ctx.passenger_name = session_user["name"]
+            ctx.email = session_user["email"]
         current_agent_name = triage_agent.name
         state: Dict[str, Any] = {
             "input_items": [],
