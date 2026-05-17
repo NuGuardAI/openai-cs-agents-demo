@@ -67,6 +67,9 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --settings \
               OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+              AZURE_OPENAI_KEY="${{ secrets.AZURE_OPENAI_KEY }}" \
+              AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
+              AZURE_OPENAI_MODEL_NAME="${{ secrets.AZURE_OPENAI_MODEL_NAME }}" \
               SCM_DO_BUILD_DURING_DEPLOYMENT=true \
               WEBSITES_PORT=8000
 
