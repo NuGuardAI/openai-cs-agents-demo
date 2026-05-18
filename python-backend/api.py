@@ -23,6 +23,7 @@ from agents import (
     ItemHelpers,
     MessageOutputItem,
     HandoffOutputItem,
+    ModelBehaviorError,
     ToolCallItem,
     ToolCallOutputItem,
     InputGuardrailTripwireTriggered,
@@ -268,6 +269,9 @@ async def chat_endpoint(req: ChatRequest, authorization: Optional[str] = Header(
 
     try:
         result = await Runner.run(current_agent, state["input_items"], context=state["context"])
+    except ModelBehaviorError as e:
+        logger.error("ModelBehaviorError during Runner.run: %s", e.message)
+        raise HTTPException(status_code=502, detail="The AI model returned an unexpected response. Please try again.")
     except InputGuardrailTripwireTriggered as e:
         failed = e.guardrail_result.guardrail
         gr_output = e.guardrail_result.output.output_info

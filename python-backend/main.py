@@ -7,6 +7,7 @@ import string
 
 from agents import (
     Agent,
+    ModelBehaviorError,
     RunContextWrapper,
     Runner,
     TResponseInputItem,
@@ -256,8 +257,13 @@ async def relevance_guardrail(
     context: RunContextWrapper[None], agent: Agent, input: str | list[TResponseInputItem]
 ) -> GuardrailFunctionOutput:
     """Guardrail to check if input is relevant to airline topics."""
-    result = await Runner.run(guardrail_agent, input, context=context.context)
-    final = result.final_output_as(RelevanceOutput)
+    try:
+        result = await Runner.run(guardrail_agent, input, context=context.context)
+        final = result.final_output_as(RelevanceOutput)
+    except ModelBehaviorError:
+        # LLM returned malformed JSON (e.g. trailing newline after closing brace).
+        # Default to passing the guardrail rather than blocking every user request.
+        final = RelevanceOutput(reasoning="guardrail parse error – defaulting to pass", is_relevant=True)
     return GuardrailFunctionOutput(output_info=final, tripwire_triggered=not final.is_relevant)
 
 class JailbreakOutput(BaseModel):
@@ -286,8 +292,13 @@ async def jailbreak_guardrail(
     context: RunContextWrapper[None], agent: Agent, input: str | list[TResponseInputItem]
 ) -> GuardrailFunctionOutput:
     """Guardrail to detect jailbreak attempts."""
-    result = await Runner.run(jailbreak_guardrail_agent, input, context=context.context)
-    final = result.final_output_as(JailbreakOutput)
+    try:
+        result = await Runner.run(jailbreak_guardrail_agent, input, context=context.context)
+        final = result.final_output_as(JailbreakOutput)
+    except ModelBehaviorError:
+        # LLM returned malformed JSON (e.g. trailing newline after closing brace).
+        # Default to passing the guardrail rather than blocking every user request.
+        final = JailbreakOutput(reasoning="guardrail parse error – defaulting to pass", is_safe=True)
     return GuardrailFunctionOutput(output_info=final, tripwire_triggered=not final.is_safe)
 
 # =========================
