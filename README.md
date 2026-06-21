@@ -40,21 +40,25 @@ openai-cs-agents-demo/
 
 ## How to use
 
-### 1. Set your OpenAI API key
+### 1. Set Azure OpenAI environment variables
 
 Place a `.env` file in the **repo root** or in `python-backend/`:
 
 ```bash
 # .env
-OPENAI_API_KEY=sk-...
+AZURE_OPENAI_KEY=...
+AZURE_OPENAI_ENDPOINT=https://<your-resource>.cognitiveservices.azure.com/
+AZURE_OPENAI_MODEL_NAME=gpt-5.4-nano
 ```
 
 The backend loads both locations automatically (repo root takes lower priority than `python-backend/.env` so you can override per-environment).
 
-You can also export it in your shell:
+You can also export them in your shell:
 
 ```bash
-export OPENAI_API_KEY=sk-...
+export AZURE_OPENAI_KEY=...
+export AZURE_OPENAI_ENDPOINT=https://<your-resource>.cognitiveservices.azure.com/
+export AZURE_OPENAI_MODEL_NAME=gpt-5.4-nano
 ```
 
 ### 2. Install dependencies
@@ -126,12 +130,12 @@ Each session is tied to the logged-in user's account, so agents will look up rea
 
 This repo includes a GitHub Actions workflow that deploys both the backend and frontend to Azure on pushes to main (or manual runs).
 
-- Backend: Azure App Service (Python) with OpenAI key injected as an app setting
+- Backend: Azure App Service (Python) with Azure OpenAI settings injected as app settings
 - Frontend: Azure Static Web Apps built from `ui/` and pointed at the deployed backend URL
 - CORS: configured on the backend to allow the Static Web App origin
 
 Workflow file: `.github/workflows/deploy-azure.yml`  
-Required secrets: `AZURE_CREDENTIALS`, `OPENAI_API_KEY`
+Required secrets: `AZURE_CREDENTIALS`, `AZURE_OPENAI_KEY`
 
 To generate `AZURE_CREDENTIALS` for GitHub Actions, use the Azure CLI:
 

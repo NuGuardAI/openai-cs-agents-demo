@@ -298,6 +298,12 @@ async def chat_endpoint(req: ChatRequest, authorization: Optional[str] = Header(
             agents=_build_agents_list(),
             guardrails=guardrail_checks,
         )
+    except Exception:
+        logger.exception("Unexpected Runner.run failure")
+        raise HTTPException(
+            status_code=502,
+            detail="The assistant hit a temporary error. Please retry your request.",
+        )
 
     messages: List[MessageResponse] = []
     events: List[AgentEvent] = []

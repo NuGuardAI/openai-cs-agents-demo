@@ -2,6 +2,8 @@ from __future__ import annotations as _annotations
 
 import os
 import random
+import logging
+import re
 from pydantic import BaseModel
 import string
 
@@ -32,6 +34,8 @@ from database import (
 load_dotenv()  # python-backend/.env
 load_dotenv(Path(__file__).parent.parent / ".env")  # repo root .env
 
+logger = logging.getLogger(__name__)
+
 # Configure Azure OpenAI as the default client for all agents
 _azure_client = AsyncAzureOpenAI(
     api_key=os.environ["AZURE_OPENAI_KEY"],
@@ -40,6 +44,13 @@ _azure_client = AsyncAzureOpenAI(
 )
 set_default_openai_client(_azure_client)
 set_default_openai_api("chat_completions")
+# Disable tracing if supported by the installed Agents SDK version.
+try:
+    from agents import set_tracing_disabled
+
+    set_tracing_disabled(True)
+except Exception:
+    logger.warning("Tracing disable API not available; continuing without SDK-level tracing toggle")
 
 AZURE_MODEL = os.environ["AZURE_OPENAI_MODEL_NAME"]
 
@@ -244,7 +255,7 @@ guardrail_agent = Agent(
     instructions=(
         "Determine if the user's message is highly unrelated to a normal customer service "
         "conversation with an airline (flights, bookings, baggage, check-in, flight status, policies, loyalty programs, etc.). "
-        "Important: You are ONLY evaluating the most recent user message, not any of the previous messages from the chat history"
+        "Important: You are ONLY evaluating the most recent user message, not any of the previous messages from the chat history. "
         "It is OK for the customer to send messages such as 'Hi' or 'OK' or any other messages that are at all conversational, "
         "but if the response is non-conversational, it must be somewhat related to airline travel. "
         "Return is_relevant=True if it is, else False, plus a brief reasoning."
@@ -252,11 +263,54 @@ guardrail_agent = Agent(
     output_type=RelevanceOutput,
 )
 
+
+def _extract_latest_user_text(input: str | list[TResponseInputItem]) -> str:
+    if isinstance(input, str):
+        return input.strip()
+
+    for item in reversed(input):
+        if isinstance(item, dict) and item.get("role") == "user":
+            content = item.get("content")
+            if isinstance(content, str):
+                return content.strip()
+    return ""
+
+
+def _looks_conversational_or_airline_related(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    if not normalized:
+        return True
+
+    # Keep short conversational turns interactive.
+    if len(normalized) <= 40:
+        if re.fullmatch(r"[a-z0-9 ,.!?'-]+", normalized):
+            small_talk = {
+                "hi", "hello", "hey", "ok", "okay", "yes", "no", "yep", "nope",
+                "thanks", "thank you", "please", "sure", "cool", "got it", "help",
+            }
+            if normalized.strip(" .!?,") in small_talk:
+                return True
+
+    airline_terms = (
+        "flight", "seat", "book", "booking", "reservation", "ticket", "cancel",
+        "baggage", "bag", "check in", "check-in", "boarding", "gate", "delay",
+        "airline", "airport", "status", "refund", "change", "rebook",
+    )
+    return any(term in normalized for term in airline_terms)
+
 @input_guardrail(name="Relevance Guardrail")
 async def relevance_guardrail(
     context: RunContextWrapper[None], agent: Agent, input: str | list[TResponseInputItem]
 ) -> GuardrailFunctionOutput:
     """Guardrail to check if input is relevant to airline topics."""
+    latest_text = _extract_latest_user_text(input)
+
+    # Deterministic pass for simple conversational/airline-related inputs so
+    # users don't get blocked by model variance on short messages.
+    if _looks_conversational_or_airline_related(latest_text):
+        final = RelevanceOutput(reasoning="simple conversational or airline-related input", is_relevant=True)
+        return GuardrailFunctionOutput(output_info=final, tripwire_triggered=False)
+
     try:
         result = await Runner.run(guardrail_agent, input, context=context.context)
         final = result.final_output_as(RelevanceOutput)
@@ -264,6 +318,9 @@ async def relevance_guardrail(
         # LLM returned malformed JSON (e.g. trailing newline after closing brace).
         # Default to passing the guardrail rather than blocking every user request.
         final = RelevanceOutput(reasoning="guardrail parse error – defaulting to pass", is_relevant=True)
+    except Exception:
+        logger.exception("Relevance guardrail runtime failure")
+        final = RelevanceOutput(reasoning="guardrail runtime error – defaulting to pass", is_relevant=True)
     return GuardrailFunctionOutput(output_info=final, tripwire_triggered=not final.is_relevant)
 
 class JailbreakOutput(BaseModel):
@@ -299,6 +356,10 @@ async def jailbreak_guardrail(
         # LLM returned malformed JSON (e.g. trailing newline after closing brace).
         # Default to passing the guardrail rather than blocking every user request.
         final = JailbreakOutput(reasoning="guardrail parse error – defaulting to pass", is_safe=True)
+    except Exception:
+        logger.exception("Jailbreak guardrail runtime failure")
+        # Fail open on runtime errors so normal travel requests remain interactive.
+        final = JailbreakOutput(reasoning="guardrail runtime error – defaulting to pass", is_safe=True)
     return GuardrailFunctionOutput(output_info=final, tripwire_triggered=not final.is_safe)
 
 # =========================

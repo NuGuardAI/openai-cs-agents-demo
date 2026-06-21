@@ -67,7 +67,6 @@ jobs:
             --name ${{ env.AZURE_WEBAPP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --settings \
-              OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
               AZURE_OPENAI_KEY="${{ secrets.AZURE_OPENAI_KEY }}" \
               AZURE_OPENAI_ENDPOINT="${{ vars.AZURE_OPENAI_ENDPOINT }}" \
               AZURE_OPENAI_MODEL_NAME="${{ env.AZURE_OPENAI_MODEL_NAME }}" \
@@ -195,10 +194,17 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --settings ALLOWED_ORIGINS="$FRONTEND_URL,http://localhost:3250,http://localhost:3000"
           # Clear any previously-added Azure-level CORS origins to avoid conflicts.
-          az webapp cors remove \
+          # App-level FastAPI CORS is the only source of truth.
+          EXISTING_ORIGINS=$(az webapp cors show \
             --name ${{ env.AZURE_WEBAPP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --allowed-origins "*" || true
+            --query "allowedOrigins[]" -o tsv || true)
+          for origin in $EXISTING_ORIGINS; do
+            az webapp cors remove \
+              --name ${{ env.AZURE_WEBAPP_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --allowed-origins "$origin" || true
+          done
 
       - name: Summary
         run: |
