@@ -110,11 +110,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install pnpm
-        run: npm install -g pnpm
+        run: npm install -g pnpm@9
 
       - name: Install dependencies
         working-directory: ./ui
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build frontend
         working-directory: ./ui
