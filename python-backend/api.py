@@ -27,7 +27,6 @@ from agents import (
     ToolCallItem,
     ToolCallOutputItem,
     InputGuardrailTripwireTriggered,
-    Handoff,
 )
 
 # Configure logging
@@ -315,7 +314,6 @@ async def chat_endpoint(req: ChatRequest, authorization: Optional[str] = Header(
             events.append(AgentEvent(id=uuid4().hex, type="message", agent=item.agent.name, content=text))
         # Handle handoff output and agent switching
         elif isinstance(item, HandoffOutputItem):
-            # Record the handoff event
             events.append(
                 AgentEvent(
                     id=uuid4().hex,
@@ -325,32 +323,6 @@ async def chat_endpoint(req: ChatRequest, authorization: Optional[str] = Header(
                     metadata={"source_agent": item.source_agent.name, "target_agent": item.target_agent.name},
                 )
             )
-            # If there is an on_handoff callback defined for this handoff, show it as a tool call
-            from_agent = item.source_agent
-            to_agent = item.target_agent
-            # Find the Handoff object on the source agent matching the target
-            ho = next(
-                (h for h in getattr(from_agent, "handoffs", [])
-                 if isinstance(h, Handoff) and getattr(h, "agent_name", None) == to_agent.name),
-                None,
-            )
-            if ho:
-                fn = ho.on_invoke_handoff
-                fv = fn.__code__.co_freevars
-                cl = fn.__closure__ or []
-                if "on_handoff" in fv:
-                    idx = fv.index("on_handoff")
-                    if idx < len(cl) and cl[idx].cell_contents:
-                        cb = cl[idx].cell_contents
-                        cb_name = getattr(cb, "__name__", repr(cb))
-                        events.append(
-                            AgentEvent(
-                                id=uuid4().hex,
-                                type="tool_call",
-                                agent=to_agent.name,
-                                content=cb_name,
-                            )
-                        )
             current_agent = item.target_agent
         elif isinstance(item, ToolCallItem):
             tool_name = getattr(item.raw_item, "name", None)
