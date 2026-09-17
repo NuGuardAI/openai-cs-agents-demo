@@ -1,6 +1,10 @@
-openai-agents
-pydantic
-fastapi
-uvicorn
-gunicorn
-python-dotenv
+openai-agents==0.22.2
+# openai is a transitive dep of openai-agents, but api.py/main.py import it
+# directly (AsyncAzureOpenAI, BadRequestError) -- pin it explicitly so a
+# future openai-agents bump can't silently drift it out from under us.
+openai==3.14.0
+pydantic==2.13.5
+fastapi==0.141.1
+uvicorn==0.53.0
+gunicorn==26.2.0
+python-dotenv==1.2.3

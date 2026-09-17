@@ -8,6 +8,8 @@ import time
 import logging
 import os
 
+from openai import BadRequestError
+
 from database import verify_credentials, get_user_by_account
 from main import (
     triage_agent,
@@ -296,6 +298,29 @@ async def chat_endpoint(req: ChatRequest, authorization: Optional[str] = Header(
             context=state["context"].model_dump(),
             agents=_build_agents_list(),
             guardrails=guardrail_checks,
+        )
+    except BadRequestError as e:
+        if e.code == "content_filter":
+            # Azure OpenAI's own content-management policy rejected the request outright
+            # (e.g. a jailbreak/red-team probe). This is expected, adversarial input, not a
+            # server error -- respond in-band the same way a tripped guardrail would, rather
+            # than surfacing it as a 502.
+            logger.warning("Azure content filter rejected the request: %s", e.message)
+            refusal = "Sorry, I can't help with that request."
+            state["input_items"].append({"role": "assistant", "content": refusal})
+            return ChatResponse(
+                conversation_id=conversation_id,
+                current_agent=current_agent.name,
+                messages=[MessageResponse(content=refusal, agent=current_agent.name)],
+                events=[],
+                context=state["context"].model_dump(),
+                agents=_build_agents_list(),
+                guardrails=guardrail_checks,
+            )
+        logger.error("BadRequestError during Runner.run: %s", e.message)
+        raise HTTPException(
+            status_code=502,
+            detail="The AI model returned an unexpected response. Please try again.",
         )
     except Exception:
         logger.exception("Unexpected Runner.run failure")
