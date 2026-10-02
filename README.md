@@ -26,6 +26,8 @@ AZURE_OPENAI_ENDPOINT=https://<your-resource>.cognitiveservices.azure.com/
 AZURE_OPENAI_MODEL_NAME=gpt-5.4-nano
 # Optional; defaults to 2025-01-01-preview
 AZURE_OPENAI_API_VERSION=2025-01-01-preview
+# Disable reasoning for function tools over Chat Completions (default).
+AZURE_OPENAI_REASONING_EFFORT=none
 ```
 
 The model name must match your Azure deployment name. All ChatKit agents and guardrails,
@@ -102,6 +104,14 @@ The home page uses upstream's ChatKit demo with mock itinerary data. The existin
 SQLite-backed demo with login is available at `/legacy`; its agents live in
 `python-backend/legacy_agents.py`. Demo accounts are `alice`, `bob`, `carol`, `david`,
 and `eva`, with passwords `<username>123`. Existing `/chat` integrations continue to work.
+Additional demo logins are `john@google.com` / `user2` and
+`alice@johnson.com` / `alice123`. Each has a separate profile, account number, and
+two distinct flight bookings. The backend seeds SQLite on every startup, including
+restarts after a crash, creating the database if missing and filling missing demo
+records while preserving existing profiles, passwords, seats, and cancellations.
+Set `AIRLINE_DB_PATH` to choose the database location (default:
+`python-backend/airline.db`).
+
 Azure content-filter rejections produce an in-band refusal in both chat endpoints.
 
 ## Deployment (CI/CD)
@@ -122,10 +132,25 @@ is included in the frontend build. The localhost placeholder is for local develo
 The workflow sets `NEXT_PUBLIC_API_BASE` to the backend's deployed URL and configures
 FastAPI CORS using `ALLOWED_ORIGINS`.
 
-The workflow runs `api:app` with one Gunicorn worker because ChatKit thread state,
-stream listeners, and login tokens are stored in process memory. Keep the backend at a
-single instance until these stores are shared externally. Threads and sessions reset
-on restart. The workflow fails early if the ChatKit domain key is missing.
+The workflow creates or upgrades the backend App Service plan to **P1V3 with three
+instances**. Set repository variables `AZURE_APP_SERVICE_SKU` and
+`AZURE_APP_SERVICE_INSTANCES` to override these defaults with a paid tier supporting
+scale-out and the desired instance count. Each instance is billed, including when idle.
+Existing plans are resized on deployment; capacity or quota errors fail the workflow.
+Always On keeps the backend warm, and Azure checks `/health` for instance health.
+
+The workflow runs `api:app` with one Gunicorn worker **per instance** because ChatKit
+thread state, stream listeners, legacy conversations, and login tokens are stored in
+process memory. Azure ARR session affinity is enabled, and all frontend backend requests
+(including ChatKit) include credentials to carry its affinity cookie. Different browsers
+can use different instances while each browser stays with its own state. API clients must
+also retain and resend cookies. With the default separate Azure frontend/backend domains,
+browsers must permit cross-site cookies; use same-site custom domains if these are blocked.
+Threads and sessions reset on restart, deployment, or reassignment to another instance.
+This scales demo traffic, but does not provide durable sessions or seamless failover;
+those require shared thread/conversation/session storage and cross-instance stream events.
+The SQLite demo database also needs a server database before production scale-out.
+The workflow fails early if the ChatKit domain key is missing.
 
 To generate `AZURE_CREDENTIALS` for GitHub Actions, use the Azure CLI:
 

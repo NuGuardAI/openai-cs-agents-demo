@@ -2,7 +2,7 @@
 
 import { ChatKit, useChatKit } from "@openai/chatkit-react";
 import React from "react";
-import { apiUrl } from "@/lib/api";
+import { apiFetch, apiUrl } from "@/lib/api";
 
 type ChatKitPanelProps = {
   initialThreadId?: string | null;
@@ -28,6 +28,7 @@ export function ChatKitPanel({
     api: {
       url: apiUrl("/chatkit"),
       domainKey: CHATKIT_DOMAIN_KEY,
+      fetch: apiFetch,
     },
     composer: {
       placeholder: "Message...",

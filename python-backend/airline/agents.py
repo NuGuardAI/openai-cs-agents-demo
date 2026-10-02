@@ -22,7 +22,7 @@ from .tools import (
     update_seat,
 )
 
-from azure_config import AZURE_MODEL
+from azure_config import AZURE_MODEL, AZURE_MODEL_SETTINGS
 
 MODEL = AZURE_MODEL
 
@@ -51,6 +51,7 @@ def seat_services_instructions(
 seat_special_services_agent = Agent[AirlineAgentChatContext](
     name="Seat and Special Services Agent",
     model=MODEL,
+    model_settings=AZURE_MODEL_SETTINGS,
     handoff_description="Updates seats and handles medical or special service seating.",
     instructions=seat_services_instructions,
     tools=[update_seat, assign_special_service_seat, display_seat_map],
@@ -79,6 +80,7 @@ def flight_information_instructions(
 flight_information_agent = Agent[AirlineAgentChatContext](
     name="Flight Information Agent",
     model=MODEL,
+    model_settings=AZURE_MODEL_SETTINGS,
     handoff_description="Provides flight status, connection impact, and alternate options.",
     instructions=flight_information_instructions,
     tools=[flight_status_tool, get_matching_flights],
@@ -108,6 +110,7 @@ def booking_cancellation_instructions(
 booking_cancellation_agent = Agent[AirlineAgentChatContext](
     name="Booking and Cancellation Agent",
     model=MODEL,
+    model_settings=AZURE_MODEL_SETTINGS,
     handoff_description="Handles new bookings, rebookings after delays, and cancellations.",
     instructions=booking_cancellation_instructions,
     tools=[cancel_flight, get_matching_flights, book_new_flight],
@@ -135,6 +138,7 @@ def refunds_compensation_instructions(
 refunds_compensation_agent = Agent[AirlineAgentChatContext](
     name="Refunds and Compensation Agent",
     model=MODEL,
+    model_settings=AZURE_MODEL_SETTINGS,
     handoff_description="Opens compensation cases and issues hotel/meal support after delays.",
     instructions=refunds_compensation_instructions,
     tools=[issue_compensation, faq_lookup_tool],
@@ -145,6 +149,7 @@ refunds_compensation_agent = Agent[AirlineAgentChatContext](
 faq_agent = Agent[AirlineAgentChatContext](
     name="FAQ Agent",
     model=MODEL,
+    model_settings=AZURE_MODEL_SETTINGS,
     handoff_description="Answers common questions about policies, baggage, seats, and compensation.",
     instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
     You are an FAQ agent. If you are speaking to a customer, you probably were transferred from the triage agent.
@@ -160,6 +165,7 @@ faq_agent = Agent[AirlineAgentChatContext](
 triage_agent = Agent[AirlineAgentChatContext](
     name="Triage Agent",
     model=MODEL,
+    model_settings=AZURE_MODEL_SETTINGS,
     handoff_description="Delegates requests to the right specialist agent (flight info, booking, seats, FAQ, baggage, compensation).",
     instructions=(
         f"{RECOMMENDED_PROMPT_PREFIX} "

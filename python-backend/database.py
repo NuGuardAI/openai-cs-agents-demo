@@ -62,6 +62,8 @@ def init_db() -> None:
             ("33333333", "Carol White",    "carol@example.com"),
             ("44444444", "David Brown",    "david@example.com"),
             ("55555555", "Eva Martinez",   "eva@example.com"),
+            ("66666666", "John Smith",     "john@google.com"),
+            ("77777777", "Alice Johnson",  "alice@johnson.com"),
         ]
         reservations = [
             # Alice - two bookings
@@ -77,6 +79,12 @@ def init_db() -> None:
             ("GG3344", "44444444", "AA-560",  "American",  "2026-10-01", "SEA", "LAS", "18E", "confirmed"),
             # Eva - one booking
             ("HH5566", "55555555", "UA-237",  "United",    "2026-05-25", "SFO", "DEN", "11C", "confirmed"),
+            # John - two upcoming bookings
+            ("JJ7788", "66666666", "UA-145",  "United",    "2026-11-10", "SFO", "EWR", "7A",  "confirmed"),
+            ("KK9900", "66666666", "DL-320",  "Delta",     "2026-11-18", "JFK", "SFO", "16D", "confirmed"),
+            # Alice's email-login account - different routes and seats
+            ("LL2233", "77777777", "AA-108",  "American",  "2026-12-05", "ORD", "LHR", "10C", "confirmed"),
+            ("MM4455", "77777777", "B6-617",  "JetBlue",   "2026-12-20", "BOS", "FLL", "5F",  "confirmed"),
         ]
         demo_credentials = [
             ("alice", "11111111", "alice123"),
@@ -84,6 +92,8 @@ def init_db() -> None:
             ("carol", "33333333", "carol123"),
             ("david", "44444444", "david123"),
             ("eva",   "55555555", "eva123"),
+            ("john@google.com",   "66666666", "user2"),
+            ("alice@johnson.com", "77777777", "alice123"),
         ]
 
         with conn:

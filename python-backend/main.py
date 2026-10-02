@@ -2,6 +2,7 @@ from __future__ import annotations as _annotations
 
 import json
 import os
+from contextlib import asynccontextmanager
 from typing import Any, Dict
 
 from chatkit.server import StreamingResult
@@ -24,8 +25,17 @@ from airline.context import (
     public_context,
 )
 from server import AirlineServer
+from database import init_db
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Restore missing demo records on every startup, including after a crash.
+    init_db()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 # Disable tracing for zero data retention orgs
 os.environ.setdefault("OPENAI_TRACING_DISABLED", "1")

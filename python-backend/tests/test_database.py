@@ -48,9 +48,9 @@ class DatabaseInitializationTests(unittest.TestCase):
         self.database.init_db()
 
         with closing(sqlite3.connect(self.database_path)) as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0], 5)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM reservations").fetchone()[0], 8)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM credentials").fetchone()[0], 5)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0], 7)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM reservations").fetchone()[0], 12)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM credentials").fetchone()[0], 7)
             self.assertEqual(
                 conn.execute(
                     "SELECT password_hash FROM credentials WHERE username = 'alice'"
@@ -76,6 +76,8 @@ class DatabaseInitializationTests(unittest.TestCase):
             ("carol", "carol123"),
             ("david", "david123"),
             ("eva", "eva123"),
+            ("john@google.com", "user2"),
+            ("alice@johnson.com", "alice123"),
         ):
             self.assertIsNotNone(self.database.verify_credentials(username, password))
 
@@ -90,9 +92,9 @@ class DatabaseInitializationTests(unittest.TestCase):
         self.database.init_db()
 
         with closing(sqlite3.connect(self.database_path)) as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0], 5)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM reservations").fetchone()[0], 8)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM credentials").fetchone()[0], 5)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0], 7)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM reservations").fetchone()[0], 12)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM credentials").fetchone()[0], 7)
             self.assertEqual(
                 conn.execute(
                     "SELECT name FROM users WHERE account_number = '11111111'"
@@ -107,6 +109,29 @@ class DatabaseInitializationTests(unittest.TestCase):
                 ).fetchone()[0],
                 0,
             )
+
+    def test_email_logins_have_distinct_profiles_and_bookings(self) -> None:
+        john = self.database.verify_credentials("john@google.com", "user2")
+        alice = self.database.verify_credentials("alice@johnson.com", "alice123")
+        self.assertIsNotNone(john)
+        self.assertIsNotNone(alice)
+        for field in ("account_number", "name", "email"):
+            self.assertNotEqual(john[field], alice[field])
+        self.assertEqual(john["email"], "john@google.com")
+        self.assertEqual(alice["email"], "alice@johnson.com")
+        john_bookings = self.database.get_reservations_by_account(john["account_number"])
+        alice_bookings = self.database.get_reservations_by_account(alice["account_number"])
+        self.assertEqual(len(john_bookings), 2)
+        self.assertEqual(len(alice_bookings), 2)
+        for field in ("confirmation_number", "flight_number", "departure_date",
+                      "departure_airport", "arrival_airport", "seat_number"):
+            self.assertTrue(
+                {booking[field] for booking in john_bookings}.isdisjoint(
+                    {booking[field] for booking in alice_bookings}
+                ), field,
+            )
+        self.assertIsNone(self.database.verify_credentials("john@google.com", "alice123"))
+        self.assertIsNone(self.database.verify_credentials("alice@johnson.com", "user2"))
 
     def test_database_path_configuration(self) -> None:
         self.assertEqual(self.database.get_database_path(), self.database_path)
@@ -172,9 +197,9 @@ class DatabaseInitializationTests(unittest.TestCase):
             self.assertEqual(process.exitcode, 0)
 
         with closing(sqlite3.connect(concurrent_database_path)) as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0], 5)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM reservations").fetchone()[0], 8)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM credentials").fetchone()[0], 5)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0], 7)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM reservations").fetchone()[0], 12)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM credentials").fetchone()[0], 7)
 
 
 if __name__ == "__main__":

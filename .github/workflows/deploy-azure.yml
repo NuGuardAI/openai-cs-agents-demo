@@ -14,6 +14,8 @@ env:
   RESOURCE_GROUP: openai-cs-agents-demo-rg
   LOCATION: eastus
   APP_SERVICE_PLAN: openai-cs-agents-plan
+  APP_SERVICE_SKU: ${{ vars.AZURE_APP_SERVICE_SKU || 'P1V3' }}
+  APP_SERVICE_INSTANCES: ${{ vars.AZURE_APP_SERVICE_INSTANCES || '3' }}
   STATIC_WEB_APP_NAME: openai-cs-agents-frontend
   AZURE_OPENAI_MODEL_NAME: gpt-5.4-nano
 
@@ -52,23 +54,46 @@ jobs:
 
       - name: Create Resource Group (if not exists)
         run: |
-          az group create --name ${{ env.RESOURCE_GROUP }} --location ${{ env.LOCATION }} || true
+          az group create --name ${{ env.RESOURCE_GROUP }} --location ${{ env.LOCATION }}
 
-      - name: Create App Service Plan (Free Tier)
+      - name: Create or resize App Service Plan
         run: |
-          az appservice plan create \
-            --name ${{ env.APP_SERVICE_PLAN }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --sku F1 \
-            --is-linux || true
+          if az appservice plan show \
+            --name "$APP_SERVICE_PLAN" \
+            --resource-group "$RESOURCE_GROUP" --output none 2>/dev/null; then
+            az appservice plan update \
+              --name "$APP_SERVICE_PLAN" \
+              --resource-group "$RESOURCE_GROUP" \
+              --sku "$APP_SERVICE_SKU" \
+              --number-of-workers "$APP_SERVICE_INSTANCES"
+          else
+            az appservice plan create \
+              --name "$APP_SERVICE_PLAN" \
+              --resource-group "$RESOURCE_GROUP" \
+              --location "$LOCATION" \
+              --sku "$APP_SERVICE_SKU" \
+              --number-of-workers "$APP_SERVICE_INSTANCES" \
+              --is-linux
+          fi
 
       - name: Create Web App
         run: |
-          az webapp create \
-            --name ${{ env.AZURE_WEBAPP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --plan ${{ env.APP_SERVICE_PLAN }} \
-            --runtime "PYTHON:3.11" || true
+          if ! az webapp show \
+            --name "$AZURE_WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" --output none 2>/dev/null; then
+            az webapp create \
+              --name "$AZURE_WEBAPP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --plan "$APP_SERVICE_PLAN" \
+              --runtime "PYTHON:$PYTHON_VERSION"
+          fi
+
+      - name: Enable session affinity
+        run: |
+          az webapp update \
+            --name "$AZURE_WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --client-affinity-enabled true
 
       - name: Configure App Settings
         run: |
@@ -83,12 +108,14 @@ jobs:
               WEBSITES_PORT=8000
 
       # ChatKit threads, streaming state, and login tokens are held in memory.
-      # Keep one worker so all requests reach the same state.
+      # Keep one worker per instance; ARR affinity pins each browser to an instance.
       - name: Configure startup command
         run: |
           az webapp config set \
             --name ${{ env.AZURE_WEBAPP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
+            --always-on true \
+            --generic-configurations '{"healthCheckPath":"/health"}' \
             --startup-file "gunicorn -w 1 -k uvicorn.workers.UvicornWorker api:app --bind 0.0.0.0:8000"
 
       - name: Deploy to Azure Web App

@@ -135,5 +135,5 @@ ui/.next
 ui/.env.local
 
 # SQLite database (auto-created on first run)
-python-backend/airline.db/
+python-backend/airline.db
 ui/out/
