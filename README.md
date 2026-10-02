@@ -150,7 +150,9 @@ Threads and sessions reset on restart, deployment, or reassignment to another in
 This scales demo traffic, but does not provide durable sessions or seamless failover;
 those require shared thread/conversation/session storage and cross-instance stream events.
 The SQLite demo database also needs a server database before production scale-out.
-The workflow fails early if the ChatKit domain key is missing.
+The frontend job fails early if the ChatKit domain key is missing; backend deployment
+can still proceed independently. Manual runs can supply the public domain key through
+the `chatkit_domain_key` input instead of the repository variable.
 
 To generate `AZURE_CREDENTIALS` for GitHub Actions, use the Azure CLI:
 
