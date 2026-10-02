@@ -1,8 +1,35 @@
+export function apiUrl(path: string) {
+  const base = (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8250").replace(/\/$/, "");
+  return `${base}${path}`;
+}
+
+// Fetch ChatKit thread state for the Agent panel
+export async function fetchThreadState(threadId: string) {
+  try {
+    const res = await fetch(apiUrl(`/chatkit/state?thread_id=${encodeURIComponent(threadId)}`));
+    if (!res.ok) throw new Error(`State API error: ${res.status}`);
+    return res.json();
+  } catch (err) {
+    console.error("Error fetching thread state:", err);
+    return null;
+  }
+}
+
+export async function fetchBootstrapState() {
+  try {
+    const res = await fetch(apiUrl("/chatkit/bootstrap"));
+    if (!res.ok) throw new Error(`Bootstrap API error: ${res.status}`);
+    return res.json();
+  } catch (err) {
+    console.error("Error bootstrapping state:", err);
+    return null;
+  }
+}
+
 // Helper to call the server
 export async function callLoginAPI(username: string, password: string) {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE ?? "";
-    const url = baseUrl ? `${baseUrl}/login` : "/login";
+    const url = apiUrl("/login");
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -19,8 +46,7 @@ export async function callLoginAPI(username: string, password: string) {
 
 export async function callLogoutAPI(token: string) {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE ?? "";
-    const url = baseUrl ? `${baseUrl}/logout` : "/logout";
+    const url = apiUrl("/logout");
     await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -32,8 +58,7 @@ export async function callLogoutAPI(token: string) {
 
 export async function callChatAPI(message: string, conversationId: string, token?: string) {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE ?? "";
-    const url = baseUrl ? `${baseUrl}/chat` : "/chat";
+    const url = apiUrl("/chat");
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(url, {

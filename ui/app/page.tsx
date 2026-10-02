@@ -1,127 +1,110 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AgentPanel } from "@/components/agent-panel";
-import { Chat } from "@/components/Chat";
-import { LoginForm } from "@/components/login-form";
-import type { Agent, AgentEvent, GuardrailCheck, Message } from "@/lib/types";
-import { callChatAPI, callLogoutAPI } from "@/lib/api";
-
-interface AuthUser {
-  name: string;
-  account_number: string;
-  email: string;
-}
+import { ChatKitPanel } from "@/components/chatkit-panel";
+import type { Agent, AgentEvent, GuardrailCheck } from "@/lib/types";
+import { fetchBootstrapState, fetchThreadState } from "@/lib/api";
 
 export default function Home() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [events, setEvents] = useState<AgentEvent[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [events, setEvents] = useState<AgentEvent[]>([]);
   const [currentAgent, setCurrentAgent] = useState<string>("");
   const [guardrails, setGuardrails] = useState<GuardrailCheck[]>([]);
   const [context, setContext] = useState<Record<string, any>>({});
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [initialThreadId, setInitialThreadId] = useState<string | null>(null);
 
-  // Auth state
-  const [authToken, setAuthToken] = useState<string | null>(null);
-  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const normalizeEvents = useCallback((items: AgentEvent[]) => {
+    if (!items.length) return items;
+    const now = Date.now();
+    const latestNonProgress = items
+      .filter((e) => e.type !== "progress_update")
+      .reduce((max, e) => Math.max(max, e.timestamp.getTime()), 0);
+    const pruned = items.filter((e) => {
+      if (e.type !== "progress_update") return true;
+      const ts = e.timestamp.getTime();
+      // Drop old progress once a newer non-progress exists, or after 15s
+      if (latestNonProgress && ts < latestNonProgress) return false;
+      if (now - ts > 15000) return false;
+      return true;
+    });
+    return pruned;
+  }, []);
 
-  const handleLogin = (token: string, user: AuthUser) => {
-    setAuthToken(token);
-    setAuthUser(user);
-  };
+  const hydrateState = useCallback(async (id: string | null) => {
+    if (!id) return;
+    const data = await fetchThreadState(id);
+    if (!data) return;
 
-  const handleLogout = async () => {
-    if (authToken) await callLogoutAPI(authToken);
-    setAuthToken(null);
-    setAuthUser(null);
-    setMessages([]);
-    setEvents([]);
-    setAgents([]);
-    setConversationId(null);
-    setContext({});
-  };
+    setCurrentAgent(data.current_agent || "");
+    setContext(data.context || {});
+    if (Array.isArray(data.agents)) setAgents(data.agents);
+    if (Array.isArray(data.events)) {
+      setEvents(
+        data.events.map((e: any) => ({
+          ...e,
+          timestamp: new Date(e.timestamp ?? Date.now()),
+        }))
+      );
+    }
+    if (Array.isArray(data.guardrails)) {
+      setGuardrails(
+        data.guardrails.map((g: any) => ({
+          ...g,
+          timestamp: new Date(g.timestamp ?? Date.now()),
+        }))
+      );
+    }
+  }, []);
 
-  // Boot the conversation once authenticated
   useEffect(() => {
-    if (!authToken) return;
+    if (threadId) {
+      void hydrateState(threadId);
+    }
+  }, [threadId, hydrateState]);
+
+  useEffect(() => {
     (async () => {
-      const data = await callChatAPI("", conversationId ?? "", authToken);
-      if (!data) return;
-      setConversationId(data.conversation_id);
-      setCurrentAgent(data.current_agent);
-      setContext(data.context);
-      const initialEvents = (data.events || []).map((e: any) => ({
-        ...e,
-        timestamp: e.timestamp ?? Date.now(),
-      }));
-      setEvents(initialEvents);
-      setAgents(data.agents || []);
-      setGuardrails(data.guardrails || []);
-      if (Array.isArray(data.messages)) {
-        setMessages(
-          data.messages.map((m: any) => ({
-            id: Date.now().toString() + Math.random().toString(),
-            content: m.content,
-            role: "assistant",
-            agent: m.agent,
-            timestamp: new Date(),
+      const bootstrap = await fetchBootstrapState();
+      if (!bootstrap) return;
+      setInitialThreadId(bootstrap.thread_id || null);
+      setThreadId(bootstrap.thread_id || null);
+      if (bootstrap.current_agent) setCurrentAgent(bootstrap.current_agent);
+      if (Array.isArray(bootstrap.agents)) setAgents(bootstrap.agents);
+      if (bootstrap.context) setContext(bootstrap.context);
+      if (Array.isArray(bootstrap.events)) {
+        setEvents(
+          normalizeEvents(
+            bootstrap.events.map((e: any) => ({
+              ...e,
+              timestamp: new Date(e.timestamp ?? Date.now()),
+            }))
+          )
+        );
+      }
+      if (Array.isArray(bootstrap.guardrails)) {
+        setGuardrails(
+          bootstrap.guardrails.map((g: any) => ({
+            ...g,
+            timestamp: new Date(g.timestamp ?? Date.now()),
           }))
         );
       }
     })();
-  }, [authToken]);
+  }, []);
 
-  // Send a user message
-  const handleSendMessage = async (content: string) => {
-    const userMsg: Message = {
-      id: Date.now().toString(),
-      content,
-      role: "user",
-      timestamp: new Date(),
-    };
+  const handleThreadChange = useCallback((id: string | null) => {
+    setThreadId(id);
+  }, []);
 
-    setMessages((prev) => [...prev, userMsg]);
-    setIsLoading(true);
+  const handleBindThread = useCallback((id: string) => {
+    setThreadId(id);
+  }, []);
 
-    const data = await callChatAPI(content, conversationId ?? "", authToken ?? undefined);
-
-    if (!data) {
-      setIsLoading(false);
-      return;
-    }
-
-    if (!conversationId) setConversationId(data.conversation_id);
-    setCurrentAgent(data.current_agent);
-    setContext(data.context);
-    if (data.events) {
-      const stamped = data.events.map((e: any) => ({
-        ...e,
-        timestamp: e.timestamp ?? Date.now(),
-      }));
-      setEvents((prev) => [...prev, ...stamped]);
-    }
-    if (data.agents) setAgents(data.agents);
-    if (data.guardrails) setGuardrails(data.guardrails);
-
-    if (data.messages) {
-      const responses: Message[] = data.messages.map((m: any) => ({
-        id: Date.now().toString() + Math.random().toString(),
-        content: m.content,
-        role: "assistant",
-        agent: m.agent,
-        timestamp: new Date(),
-      }));
-      setMessages((prev) => [...prev, ...responses]);
-    }
-
-    setIsLoading(false);
-  };
-
-  if (!authToken) {
-    return <LoginForm onLogin={handleLogin} />;
-  }
+  const handleResponseEnd = useCallback(() => {
+    void hydrateState(threadId);
+  }, [hydrateState, threadId]);
 
   return (
     <main className="flex h-screen gap-2 bg-gray-100 p-2">
@@ -132,26 +115,12 @@ export default function Home() {
         guardrails={guardrails}
         context={context}
       />
-      <div className="flex flex-1 flex-col min-w-0">
-        {/* User bar */}
-        <div className="flex items-center justify-between rounded-lg bg-white border px-4 py-2 mb-2 text-sm">
-          <span className="text-gray-600">
-            Signed in as <span className="font-semibold text-gray-900">{authUser?.name}</span>
-            <span className="ml-2 text-gray-400 font-mono text-xs">#{authUser?.account_number}</span>
-          </span>
-          <button
-            onClick={handleLogout}
-            className="text-xs text-gray-500 hover:text-gray-900 underline underline-offset-2 transition-colors"
-          >
-            Sign out
-          </button>
-        </div>
-        <Chat
-          messages={messages}
-          onSendMessage={handleSendMessage}
-          isLoading={isLoading}
-        />
-      </div>
+      <ChatKitPanel
+        initialThreadId={initialThreadId}
+        onThreadChange={handleThreadChange}
+        onResponseEnd={handleResponseEnd}
+        onRunnerBindThread={handleBindThread}
+      />
     </main>
   );
 }

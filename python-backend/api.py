@@ -1,17 +1,16 @@
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Header, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from uuid import uuid4
 import secrets
 import time
 import logging
-import os
 
 from openai import BadRequestError
 
+from main import app  # Serve ChatKit and the existing JSON/auth API together.
 from database import verify_credentials, get_user_by_account
-from main import (
+from legacy_agents import (
     triage_agent,
     faq_agent,
     seat_booking_agent,
@@ -35,20 +34,6 @@ from agents import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
-
-# CORS configuration - supports both local development and production
-allowed_origins = os.getenv(
-    "ALLOWED_ORIGINS",
-    "http://localhost:3250,http://localhost:3000",
-).split(",")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # =========================
 # Models

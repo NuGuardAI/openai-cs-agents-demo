@@ -25,6 +25,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate ChatKit domain key
+        env:
+          CHATKIT_DOMAIN_KEY: ${{ vars.NEXT_PUBLIC_CHATKIT_DOMAIN_KEY }}
+        run: |
+          if [ -z "$CHATKIT_DOMAIN_KEY" ]; then
+            echo "::error::Set repository variable NEXT_PUBLIC_CHATKIT_DOMAIN_KEY for the Azure frontend hostname."
+            exit 1
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -73,12 +82,14 @@ jobs:
               SCM_DO_BUILD_DURING_DEPLOYMENT=true \
               WEBSITES_PORT=8000
 
+      # ChatKit threads, streaming state, and login tokens are held in memory.
+      # Keep one worker so all requests reach the same state.
       - name: Configure startup command
         run: |
           az webapp config set \
             --name ${{ env.AZURE_WEBAPP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --startup-file "gunicorn -w 2 -k uvicorn.workers.UvicornWorker api:app --bind 0.0.0.0:8000"
+            --startup-file "gunicorn -w 1 -k uvicorn.workers.UvicornWorker api:app --bind 0.0.0.0:8000"
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
@@ -121,6 +132,7 @@ jobs:
         run: pnpm run build
         env:
           NEXT_PUBLIC_API_BASE: ${{ needs.build-and-deploy-backend.outputs.backend_url }}
+          NEXT_PUBLIC_CHATKIT_DOMAIN_KEY: ${{ vars.NEXT_PUBLIC_CHATKIT_DOMAIN_KEY }}
 
       - name: Login to Azure
         uses: azure/login@v2
