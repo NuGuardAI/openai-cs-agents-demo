@@ -124,11 +124,13 @@ This repo includes a GitHub Actions workflow that deploys both the backend and f
 
 Workflow file: `.github/workflows/deploy-azure.yml`  
 Required secrets: `AZURE_CREDENTIALS`, `AZURE_OPENAI_KEY`
-Required repository variables: `AZURE_OPENAI_ENDPOINT`, `NEXT_PUBLIC_CHATKIT_DOMAIN_KEY`
+Required repository variable: `AZURE_OPENAI_ENDPOINT`
 
-Register the Azure Static Web App's frontend hostname for ChatKit and set its domain key
-as `NEXT_PUBLIC_CHATKIT_DOMAIN_KEY` before running the workflow. This value is public and
-is included in the frontend build. The localhost placeholder is for local development.
+The ChatKit domain key registered for the Azure Static Web App's frontend hostname is
+configured in the deployment workflow. To use another hostname, supply that
+hostname's key as `chatkit_domain_key` on a manual run.
+This value is public and is included in the frontend build. The localhost placeholder is
+for local development.
 The workflow sets `NEXT_PUBLIC_API_BASE` to the backend's deployed URL and configures
 FastAPI CORS using `ALLOWED_ORIGINS`.
 
@@ -150,9 +152,8 @@ Threads and sessions reset on restart, deployment, or reassignment to another in
 This scales demo traffic, but does not provide durable sessions or seamless failover;
 those require shared thread/conversation/session storage and cross-instance stream events.
 The SQLite demo database also needs a server database before production scale-out.
-The frontend job fails early if the ChatKit domain key is missing; backend deployment
-can still proceed independently. Manual runs can supply the public domain key through
-the `chatkit_domain_key` input instead of the repository variable.
+Manual workflow runs can supply a different public domain key through the
+`chatkit_domain_key` input.
 
 To generate `AZURE_CREDENTIALS` for GitHub Actions, use the Azure CLI:
 

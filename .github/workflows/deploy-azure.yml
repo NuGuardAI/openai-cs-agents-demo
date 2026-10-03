@@ -135,15 +135,6 @@ jobs:
     needs: build-and-deploy-backend
     
     steps:
-      - name: Validate ChatKit domain key
-        env:
-          CHATKIT_DOMAIN_KEY: ${{ inputs.chatkit_domain_key || vars.NEXT_PUBLIC_CHATKIT_DOMAIN_KEY }}
-        run: |
-          if [ -z "$CHATKIT_DOMAIN_KEY" ]; then
-            echo "::error::Set repository variable NEXT_PUBLIC_CHATKIT_DOMAIN_KEY or pass chatkit_domain_key on a manual run for the Azure frontend hostname."
-            exit 1
-          fi
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -164,7 +155,7 @@ jobs:
         run: pnpm run build
         env:
           NEXT_PUBLIC_API_BASE: ${{ needs.build-and-deploy-backend.outputs.backend_url }}
-          NEXT_PUBLIC_CHATKIT_DOMAIN_KEY: ${{ inputs.chatkit_domain_key || vars.NEXT_PUBLIC_CHATKIT_DOMAIN_KEY }}
+          NEXT_PUBLIC_CHATKIT_DOMAIN_KEY: ${{ inputs.chatkit_domain_key || 'domain_pk_6ac0396b701881939d90d96a431c3dfc010ac4c3d9ef80da' }}
 
       - name: Login to Azure
         uses: azure/login@v2
