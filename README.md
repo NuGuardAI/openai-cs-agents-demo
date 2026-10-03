@@ -100,7 +100,8 @@ This command also starts the backend on port 8250.
 - `POST /chat`: existing JSON API, accepting `message` and optional `conversation_id`.
 - `POST /login`, `POST /logout`, `GET /me`: existing demo authentication endpoints.
 
-The home page uses upstream's ChatKit demo with mock itinerary data. The existing
+The home page asks users to sign in with a demo account before showing upstream's
+ChatKit demo with mock itinerary data. The existing
 SQLite-backed demo with login is available at `/legacy`; its agents live in
 `python-backend/legacy_agents.py`. Demo accounts are `alice`, `bob`, `carol`, `david`,
 and `eva`, with passwords `<username>123`. Existing `/chat` integrations continue to work.

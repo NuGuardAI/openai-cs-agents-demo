@@ -3,10 +3,32 @@
 import { useCallback, useEffect, useState } from "react";
 import { AgentPanel } from "@/components/agent-panel";
 import { ChatKitPanel } from "@/components/chatkit-panel";
+import { LoginForm } from "@/components/login-form";
 import type { Agent, AgentEvent, GuardrailCheck } from "@/lib/types";
-import { fetchBootstrapState, fetchThreadState } from "@/lib/api";
+import { callLogoutAPI, fetchBootstrapState, fetchThreadState } from "@/lib/api";
+
+type AuthUser = {
+  name: string;
+  account_number: string;
+  email: string;
+};
 
 export default function Home() {
+  const [auth, setAuth] = useState<{ token: string; user: AuthUser } | null>(null);
+
+  if (!auth) {
+    return <LoginForm onLogin={(token, user) => setAuth({ token, user })} />;
+  }
+
+  const handleLogout = () => {
+    void callLogoutAPI(auth.token);
+    setAuth(null);
+  };
+
+  return <AuthenticatedHome key={auth.token} user={auth.user} onLogout={handleLogout} />;
+}
+
+function AuthenticatedHome({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [currentAgent, setCurrentAgent] = useState<string>("");
@@ -115,12 +137,27 @@ export default function Home() {
         guardrails={guardrails}
         context={context}
       />
-      <ChatKitPanel
-        initialThreadId={initialThreadId}
-        onThreadChange={handleThreadChange}
-        onResponseEnd={handleResponseEnd}
-        onRunnerBindThread={handleBindThread}
-      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="mb-2 flex items-center justify-between rounded-lg border bg-white px-4 py-2 text-sm">
+          <span className="text-gray-600">
+            Signed in as <span className="font-semibold text-gray-900">{user.name}</span>
+            <span className="ml-2 font-mono text-xs text-gray-400">#{user.account_number}</span>
+          </span>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="text-xs text-gray-500 underline underline-offset-2 transition-colors hover:text-gray-900"
+          >
+            Sign out
+          </button>
+        </div>
+        <ChatKitPanel
+          initialThreadId={initialThreadId}
+          onThreadChange={handleThreadChange}
+          onResponseEnd={handleResponseEnd}
+          onRunnerBindThread={handleBindThread}
+        />
+      </div>
     </main>
   );
 }
